@@ -11,6 +11,8 @@ import { VoiceModeModal } from "./components/tools/VoiceModeModal.tsx";
 import { MemoryModal } from "./components/modals/MemoryModal.tsx";
 import { ExportModal } from "./components/modals/ExportModal.tsx";
 import { UserAuthModal } from "./components/modals/UserAuthModal.tsx";
+import { streamGeminiChat } from "./services/geminiClient.ts";
+import { Info, X } from "lucide-react";
 
 import type {
   ChatSession,
@@ -52,6 +54,7 @@ export default function App() {
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
@@ -196,71 +199,41 @@ export default function App() {
         },
       ];
 
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abortControllerRef.current.signal,
-        body: JSON.stringify({
-          messages: contextMessages,
-          webSearch,
-          agentMode,
-          memory: memories.map((m) => m.content),
-        }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error ${res.status}`);
-      }
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
       let accumulatedText = "";
       let sources: Array<{ title: string; uri: string }> = [];
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n\n");
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.type === "token") {
-                  accumulatedText += data.text;
-
-                  // Update UI with partial streaming text
-                  setSessions((prev) =>
-                    prev.map((s) => {
-                      if (s.id === currentSessionId) {
-                        return {
-                          ...s,
-                          messages: s.messages.map((m) =>
-                            m.id === assistantMessageId
-                              ? { ...m, content: accumulatedText }
-                              : m
-                          ),
-                        };
-                      }
-                      return s;
-                    })
-                  );
-                } else if (data.type === "sources") {
-                  sources = data.sources;
-                } else if (data.type === "error") {
-                  throw new Error(data.error);
-                }
-              } catch (parseErr) {
-                // Ignore parse errors on incomplete chunk boundaries
+      await streamGeminiChat({
+        messages: contextMessages,
+        webSearch,
+        agentMode,
+        memory: memories.map((m) => m.content),
+        signal: abortControllerRef.current.signal,
+        onToken: (token) => {
+          accumulatedText += token;
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id === currentSessionId) {
+                return {
+                  ...s,
+                  messages: s.messages.map((m) =>
+                    m.id === assistantMessageId
+                      ? { ...m, content: accumulatedText }
+                      : m
+                  ),
+                };
               }
-            }
-          }
-        }
-      }
+              return s;
+            })
+          );
+        },
+        onSources: (newSources) => {
+          sources = newSources;
+        },
+        onStatusNotice: (notice) => {
+          setStatusNotice(notice);
+          setTimeout(() => setStatusNotice(null), 6000);
+        },
+      });
 
       // Check if text contains agent execution trace
       let reasoningTrace: string | undefined = undefined;
@@ -501,6 +474,22 @@ export default function App() {
           activeSession={activeSession}
           memoriesCount={memories.length}
         />
+
+        {/* Status Notification Banner (e.g. Model switched / 404 recovery) */}
+        {statusNotice && (
+          <div className="mx-4 mt-3 flex items-center justify-between p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs font-mono shadow-lg animate-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>{statusNotice}</span>
+            </div>
+            <button
+              onClick={() => setStatusNotice(null)}
+              className="p-1 hover:bg-white/10 rounded text-amber-300"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Central View Area: Hero or Chat */}
         <main className="flex-1 overflow-y-auto relative flex flex-col justify-between">

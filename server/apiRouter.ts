@@ -122,16 +122,29 @@ You are operating in Autonomous Agent Mode. For complex or multi-part queries:
         Connection: "keep-alive",
       });
 
-      // Call streaming API
-      const stream = await ai.models.generateContentStream({
-        model: "gemini-3.8-flash",
-        contents: formattedContents,
-        config: {
-          systemInstruction,
-          tools: tools.length > 0 ? tools : undefined,
-          temperature: 0.7,
-        },
-      });
+      // Call streaming API with fallback
+      let stream;
+      try {
+        stream = await ai.models.generateContentStream({
+          model: "gemini-3.8-flash",
+          contents: formattedContents,
+          config: {
+            systemInstruction,
+            tools: tools.length > 0 ? tools : undefined,
+            temperature: 0.7,
+          },
+        });
+      } catch (err: unknown) {
+        console.warn("Primary model attempt failed, falling back to gemini-1.5-flash:", err);
+        stream = await ai.models.generateContentStream({
+          model: "gemini-1.5-flash",
+          contents: formattedContents,
+          config: {
+            systemInstruction,
+            temperature: 0.7,
+          },
+        });
+      }
 
       let fullText = "";
       const searchSources: Array<{ title: string; uri: string }> = [];
