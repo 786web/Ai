@@ -1,0 +1,6 @@
+{
+  "name": "Trivexa AI - Pakistan's First All-in-One Future AI",
+  "description": "Pakistan's premier unified AI platform for Vision, Image Generation, Code Generation, and Voice Mode powered by next-generation intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
